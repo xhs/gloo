@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-import asyncio
 import traceback
 import functools
 from urllib.parse import urlparse
+import asyncio
+import uvloop
+asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
 
 import re
 length_regex = re.compile(r'Content-Length: ([0-9]+)\r\n', re.IGNORECASE)
@@ -31,7 +33,7 @@ async def handle_client(reader, writer, loop=None):
         headers = header_str.split('\r\n')[:-1]
         method, path, version = headers[0].split(' ')
 
-        if method == 'CONNECT':
+        if method == 'CONNECT':  # HTTPS
             host, port_str = path.split(':')
             port = int(port_str)
             rreader, rwriter = await asyncio.open_connection(host=host, port=port, loop=loop)
@@ -41,7 +43,7 @@ async def handle_client(reader, writer, loop=None):
                 asyncio.ensure_future(relay(rreader, writer), loop=loop)
             ]
             await asyncio.wait(tasks, loop=loop)
-        else:
+        else:  # HTTP
             r = urlparse(path)
             host = r.hostname
             port = r.port or 80
@@ -67,13 +69,7 @@ async def handle_client(reader, writer, loop=None):
             if payload:
                 rwriter.write(payload)
             await rwriter.drain()
-
-            while True:
-                data = await rreader.read(BUFFER_SIZE)
-                if not data:
-                    break
-                writer.write(data)
-                await writer.drain()
+            await relay(rreader, writer)
     except:
         traceback.print_exc()
     finally:
